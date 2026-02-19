@@ -7,5 +7,5 @@ const CONFIG = {
 // Auto-detect: if running on localhost use local backend, else use production
 if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
   // Replace this with your Railway URL after deployment
-  CONFIG.SERVER_URL = 'towerdefense-production.up.railway.app';
+  CONFIG.SERVER_URL = 'https://towerdefense-production.up.railway.app';
 }
