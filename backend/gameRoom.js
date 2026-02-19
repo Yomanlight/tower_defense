@@ -452,13 +452,18 @@ class GameRoom {
   }
 
   getRoomInfo() {
+    const playersArr = [];
+    for (const p of this.players.values()) {
+      playersArr.push({ socketId: p.socketId, id: p.id, username: p.username, zone: p.zone });
+    }
     return {
       id: this.id,
       name: this.name,
       hostId: this.hostId,
       playerCount: this.players.size,
       maxPlayers: 2,
-      state: this.state
+      state: this.state,
+      players: playersArr
     };
   }
 }

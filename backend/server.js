@@ -297,16 +297,24 @@ io.on('connection', (socket) => {
   });
 
   socket.on('leaveRoom', () => {
-    _leaveRoom();
+    _leaveRoom(true); // explicit leave — always remove player
   });
 
-  function _leaveRoom() {
+  function _leaveRoom(explicit = false) {
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     if (room) {
+      // During an active game, a disconnect is likely a page navigation (going to game.html).
+      // Don't remove the player so rejoinRoom can reconnect them.
+      if (!explicit && room.state === 'playing') {
+        socket.leave(currentRoomId);
+        currentRoomId = null;
+        return;
+      }
       room.removePlayer(socket.id);
       socket.leave(currentRoomId);
       if (room.getPlayerCount() === 0) {
+        room.stopGame();
         rooms.delete(currentRoomId);
       } else {
         io.to(currentRoomId).emit('roomState', room.getRoomInfo());
