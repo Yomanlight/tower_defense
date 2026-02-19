@@ -105,7 +105,8 @@ const Lobby = (() => {
 
     document.getElementById('roomTitle').textContent = room.name;
     document.getElementById('roomCode').textContent = room.id;
-    document.getElementById('roomPlayerCount').textContent = `${room.playerCount}/${room.maxPlayers}`;
+    const playerCount = document.getElementById('roomPlayerCount');
+    if (playerCount) playerCount.textContent = `${room.playerCount}/${room.maxPlayers}`;
 
     const startBtn = document.getElementById('startGameBtn');
     if (startBtn) {
