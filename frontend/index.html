@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tower Defense Multijoueur</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="page-index">
+
+<!-- ── HEADER ──────────────────────────────────────────────────────────── -->
+<header class="page-header">
+  <h1>🏰 Tower Defense <span>Multijoueur</span></h1>
+  <div id="userInfo" style="display:none">
+    Connecté en tant que <strong id="headerUsername"></strong>
+    <button id="logoutBtn">Déconnexion</button>
+  </div>
+</header>
+
+<!-- ── AUTH SECTION ─────────────────────────────────────────────────────── -->
+<section id="authSection">
+  <div class="auth-card">
+    <h2>🏰 Connexion</h2>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin"  onclick="switchTab('login')">Connexion</button>
+      <button class="auth-tab"        id="tabRegister" onclick="switchTab('register')">Créer un compte</button>
+    </div>
+
+    <form id="loginForm" class="auth-form" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label>Nom d'utilisateur</label>
+        <input type="text" id="loginUsername" placeholder="Votre nom" required autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Mot de passe</label>
+        <input type="password" id="loginPassword" placeholder="••••••" required autocomplete="current-password">
+      </div>
+      <div id="authError"></div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Se connecter</button>
+    </form>
+
+    <form id="registerForm" class="auth-form" style="display:none" onsubmit="handleRegister(event)">
+      <div class="form-group">
+        <label>Nom d'utilisateur (3-20 caractères)</label>
+        <input type="text" id="registerUsername" placeholder="Choisissez un pseudo" required autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Mot de passe (min. 4 caractères)</label>
+        <input type="password" id="registerPassword" placeholder="••••••" required autocomplete="new-password">
+      </div>
+      <div id="registerError"></div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Créer le compte</button>
+    </form>
+  </div>
+</section>
+
+<!-- ── MAIN CONTENT (Lobby) ──────────────────────────────────────────────── -->
+<main class="main-content" id="mainContent" style="display:none">
+
+  <!-- LOBBY VIEW -->
+  <div id="lobbyView">
+    <div class="lobby-header">
+      <h2>🎮 Parties disponibles</h2>
+      <div class="lobby-actions">
+        <button class="btn btn-primary" id="createRoomBtn">+ Créer une partie</button>
+        <button class="btn" id="joinByCodeBtn">Rejoindre par code</button>
+      </div>
+    </div>
+    <div class="room-list" id="roomListContainer">
+      <p class="empty-msg">Chargement...</p>
+    </div>
+  </div>
+
+  <!-- ROOM VIEW -->
+  <div id="roomView" style="display:none">
+    <div class="room-view-header">
+      <h2 id="roomTitle">Ma partie</h2>
+      <p>Partagez le code ci-dessous pour inviter un ami :</p>
+    </div>
+    <div class="room-code-display" id="roomCode">—</div>
+    <div class="player-slots" id="playerSlots"></div>
+    <div class="room-actions">
+      <button class="btn btn-success" id="startGameBtn">▶ Lancer la partie</button>
+      <button class="btn" id="leaveRoomBtn">Quitter</button>
+    </div>
+    <p style="color:var(--muted);font-size:13px;margin-top:12px" id="startHint">
+      Vous pouvez jouer seul ou attendre un 2e joueur.
+    </p>
+  </div>
+</main>
+
+<!-- ── FRIENDS SIDEBAR ───────────────────────────────────────────────────── -->
+<aside class="friends-sidebar" id="friendsSidebar" style="display:none">
+  <div class="sidebar-header">
+    <h3>👥 Amis <span id="pendingBadge" style="display:none">0</span></h3>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Ajouter un ami</div>
+    <div class="add-friend-form">
+      <input type="text" id="addFriendInput" placeholder="Pseudo exact...">
+      <button onclick="sendFriendReq()">+</button>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Demandes reçues</div>
+    <ul id="pendingList"></ul>
+  </div>
+
+  <div class="sidebar-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+    <div class="sidebar-section-title">Amis</div>
+    <ul id="friendsList" style="flex:1;overflow-y:auto"></ul>
+  </div>
+</aside>
+
+<!-- ── TOAST CONTAINER ───────────────────────────────────────────────────── -->
+<div id="toastContainer"></div>
+
+<!-- ── SCRIPTS ───────────────────────────────────────────────────────────── -->
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/friends.js"></script>
+<script src="js/lobby.js"></script>
+<script>
+// ── TOAST ──────────────────────────────────────────────────────────────────
+const Toast = {
+  show(message, type = 'info', duration = 4000) {
+    const c = document.getElementById('toastContainer');
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.textContent = message;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), duration);
+  }
+};
+
+// ── AUTH UI ────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('loginForm').style.display    = tab === 'login'    ? 'flex' : 'none';
+  document.getElementById('registerForm').style.display = tab === 'register' ? 'flex' : 'none';
+  document.getElementById('tabLogin').classList.toggle('active',    tab === 'login');
+  document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
+  document.getElementById('authError').textContent    = '';
+  document.getElementById('registerError').textContent = '';
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const u = document.getElementById('loginUsername').value.trim();
+  const p = document.getElementById('loginPassword').value;
+  const btn = e.submitter; btn.disabled = true;
+  const data = await Auth.login(u, p);
+  btn.disabled = false;
+  if (data.error) { document.getElementById('authError').textContent = data.error; return; }
+  Auth.setSession(data.token, data.user);
+  startApp(data.user);
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  const u = document.getElementById('registerUsername').value.trim();
+  const p = document.getElementById('registerPassword').value;
+  const btn = e.submitter; btn.disabled = true;
+  const data = await Auth.register(u, p);
+  btn.disabled = false;
+  if (data.error) { document.getElementById('registerError').textContent = data.error; return; }
+  Auth.setSession(data.token, data.user);
+  startApp(data.user);
+}
+
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  Auth.clearSession();
+  if (window._socket) window._socket.disconnect();
+  location.reload();
+});
+
+// ── MAIN APP ───────────────────────────────────────────────────────────────
+function startApp(user) {
+  document.getElementById('authSection').style.display  = 'none';
+  document.getElementById('mainContent').style.display  = 'block';
+  document.getElementById('friendsSidebar').style.display = 'flex';
+  document.getElementById('userInfo').style.display     = 'flex';
+  document.getElementById('headerUsername').textContent = user.username;
+
+  const socket = io(CONFIG.SERVER_URL, { transports: ['websocket', 'polling'] });
+  window._socket = socket;
+
+  socket.on('connect', () => {
+    socket.emit('auth', { token: Auth.getToken() });
+  });
+
+  socket.on('authSuccess', ({ user: u, friends, pendingRequests }) => {
+    Friends.init(socket, friends, pendingRequests);
+    Lobby.init(socket);
+  });
+
+  socket.on('authError', ({ message }) => {
+    Toast.show(message, 'error');
+    Auth.clearSession();
+    location.reload();
+  });
+
+  socket.on('roomList',  (list)  => Lobby.updateRoomList(list));
+  socket.on('roomState', (room)  => handleRoomState(room, socket));
+  socket.on('gameStarted', ()    => Lobby.handleGameStarted());
+
+  socket.on('friendRequest', ({ from })  => Friends.addPendingRequest(from));
+  socket.on('friendAdded',   ({ friend })=> Friends.addFriend(friend));
+  socket.on('friendOnline',  ({ id, username }) => Friends.setOnline(id, true));
+  socket.on('friendOffline', ({ id }) => Friends.setOnline(id, false));
+
+  socket.on('gameInvite', ({ from, roomId }) => {
+    Toast.show(`${from.username} vous invite à jouer !`, 'info', 8000);
+    const accept = confirm(`${from.username} vous invite à une partie. Rejoindre ?`);
+    if (accept) socket.emit('joinRoom', { roomId });
+  });
+
+  socket.on('notification', ({ message, type }) => Toast.show(message, type || 'info'));
+  socket.on('error', ({ message }) => Toast.show(message, 'error'));
+}
+
+function handleRoomState(room, socket) {
+  Lobby.handleRoomState(room);
+  renderPlayerSlots(room, socket);
+}
+
+function renderPlayerSlots(room, socket) {
+  const container = document.getElementById('playerSlots');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < 2; i++) {
+    const player = room.players ? room.players[i] : null;
+    const div = document.createElement('div');
+    div.className = 'player-slot';
+    const zoneLabel = `<span class="zone-badge zone-${i}">Zone ${i + 1}</span>`;
+    if (player) {
+      const isMe = player.socketId === socket.id || player.id === Auth.getUser()?.id;
+      div.innerHTML = `
+        <span class="slot-label">Joueur ${i + 1}</span>
+        ${zoneLabel}
+        <span class="slot-name">${escapeHtml(player.username)}${isMe ? ' (vous)' : ''}</span>
+      `;
+    } else {
+      div.innerHTML = `
+        <span class="slot-label">Joueur ${i + 1}</span>
+        ${zoneLabel}
+        <span class="slot-empty">En attente...</span>
+      `;
+    }
+    container.appendChild(div);
+  }
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(text));
+  return d.innerHTML;
+}
+
+async function sendFriendReq() {
+  const input = document.getElementById('addFriendInput');
+  const username = input.value.trim();
+  if (!username) return;
+  if (window._socket) {
+    window._socket.emit('sendFriendRequest', { username });
+    input.value = '';
+    Toast.show(`Demande envoyée à ${username}`, 'success');
+  }
+}
+
+// Auto-login if token exists
+if (Auth.isLoggedIn()) {
+  const user = Auth.getUser();
+  if (user) startApp(user);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tower Defense — Partie</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="page-game">
+
+<!-- ── HUD ──────────────────────────────────────────────────────────────── -->
+<header class="game-hud">
+  <div class="hud-stat">❤️ Vies : <span id="livesDisplay">20</span></div>
+  <div class="hud-divider"></div>
+  <div class="hud-stat">🌊 Vague : <span id="waveDisplay">0/20</span></div>
+  <div class="hud-divider"></div>
+  <div style="flex:1"></div>
+  <button class="btn btn-gold" id="launchWaveBtn">Lancer vague</button>
+</header>
+
+<!-- ── GAME AREA ─────────────────────────────────────────────────────────── -->
+<main class="game-area">
+  <canvas id="gameCanvas"></canvas>
+</main>
+
+<!-- ── SIDE PANEL ────────────────────────────────────────────────────────── -->
+<aside class="game-panel">
+
+  <!-- Players -->
+  <div class="panel-section" id="playersSection">
+    <div class="panel-title">Joueurs</div>
+    <div id="playerCardsContainer"></div>
+  </div>
+
+  <!-- My gold -->
+  <div class="panel-section">
+    <div class="panel-title">Mon or</div>
+    <div style="font-size:22px;font-weight:800;color:var(--gold)">
+      💰 <span id="myGold">150</span>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px">
+      Moi : <span id="myUsername">—</span>
+    </div>
+  </div>
+
+  <!-- Tower selection -->
+  <div class="panel-section">
+    <div class="panel-title">Tours (clic gauche = placer)</div>
+    <div class="tower-grid">
+      <button class="tower-btn" data-type="archer">
+        <span class="tower-emoji">🏹</span>
+        <span class="tower-name">Archer</span>
+        <span class="tower-cost">75 💰</span>
+        <span class="tower-desc">Rapide, cible unique</span>
+      </button>
+      <button class="tower-btn" data-type="canon">
+        <span class="tower-emoji">💣</span>
+        <span class="tower-name">Canon</span>
+        <span class="tower-cost">150 💰</span>
+        <span class="tower-desc">Lent, AOE splash</span>
+      </button>
+      <button class="tower-btn" data-type="mage">
+        <span class="tower-emoji">🔮</span>
+        <span class="tower-name">Mage</span>
+        <span class="tower-cost">200 💰</span>
+        <span class="tower-desc">Zone totale</span>
+      </button>
+      <button class="tower-btn" data-type="sniper">
+        <span class="tower-emoji">🎯</span>
+        <span class="tower-name">Sniper</span>
+        <span class="tower-cost">250 💰</span>
+        <span class="tower-desc">Très lente, +portée</span>
+      </button>
+      <button class="tower-btn" data-type="givre">
+        <span class="tower-emoji">❄️</span>
+        <span class="tower-name">Givre</span>
+        <span class="tower-cost">125 💰</span>
+        <span class="tower-desc">Ralentit -50%</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="panel-section">
+    <div class="panel-title">Ennemis</div>
+    <div style="display:flex;flex-direction:column;gap:5px;font-size:12px">
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:#2ecc71;display:inline-block"></span> Normal (3❤️ 10💰)</div>
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:#f1c40f;display:inline-block"></span> Rapide (2❤️ 8💰)</div>
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:#9b59b6;display:inline-block"></span> Tank (15❤️ 20💰)</div>
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:#95a5a6;display:inline-block"></span> Blindé (8❤️ 15💰 🛡️2)</div>
+      <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:#e74c3c;display:inline-block"></span> Boss (100❤️ 100💰 🛡️3)</div>
+    </div>
+  </div>
+
+</aside>
+
+<!-- ── BOTTOM BAR ─────────────────────────────────────────────────────────── -->
+<footer class="game-bottom">
+  <span class="tip-text">Clic gauche : placer tour | Clic droit : vendre tour</span>
+  <button class="btn" id="quitBtn">🚪 Quitter</button>
+</footer>
+
+<!-- ── GAME OVER / VICTORY OVERLAY ───────────────────────────────────────── -->
+<div class="game-overlay" id="gameOverlay">
+  <div class="overlay-box">
+    <h2 id="overlayTitle"></h2>
+    <p id="overlayMsg"></p>
+    <div style="display:flex;gap:12px;justify-content:center">
+      <button class="btn btn-primary" onclick="window.location.reload()">Rejouer</button>
+      <button class="btn" onclick="window.location.href='index.html'">Menu principal</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── TOAST CONTAINER ───────────────────────────────────────────────────── -->
+<div id="toastContainer"></div>
+
+<!-- ── SCRIPTS ───────────────────────────────────────────────────────────── -->
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script>
+// Toast (inline for game page)
+const Toast = {
+  show(message, type = 'info', duration = 4000) {
+    const c = document.getElementById('toastContainer');
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.textContent = message;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), duration);
+  }
+};
+
+// Redirect to login if not authenticated
+if (!Auth.isLoggedIn()) {
+  window.location.href = 'index.html';
+}
+
+// Render player cards when game state updates
+function renderPlayerCards(state) {
+  const container = document.getElementById('playerCardsContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  for (const p of state.players) {
+    const div = document.createElement('div');
+    div.className = `player-card zone-${p.zone}`;
+    div.innerHTML = `
+      <div class="p-name">${escapeHtml(p.username)} ${p.socketId === (window._mySocketId || '') ? '(vous)' : ''}</div>
+      <div class="p-gold">💰 ${p.gold}</div>
+    `;
+    container.appendChild(div);
+  }
+}
+
+// Patch game.js to call renderPlayerCards on each gameState
+const _origGameState = null;
+document.addEventListener('gameStateRendered', (e) => {
+  renderPlayerCards(e.detail);
+});
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(text));
+  return d.innerHTML;
+}
+</script>
+<script src="js/game.js"></script>
+<script>
+// After game.js loads, patch the socket.on('gameState') to also render player cards
+if (typeof socket !== 'undefined') {
+  socket.on('gameState', (state) => {
+    renderPlayerCards(state);
+    window._mySocketId = socket.id;
+  });
+}
+</script>
+</body>
+</html>

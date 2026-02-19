@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tower Defense Médiéval</title>
+<style>
+body { margin:0; background:#222; font-family:Arial; text-align:center; color:white;}
+#ui { background:#333; padding:10px;}
+button { padding:8px; margin:4px; font-size:14px; cursor:pointer;}
+canvas { background:#4a7c59; display:block; margin:auto; touch-action:none;}
+#restartBtn { display:none; }
+
+/* Surbrillance bouton vague suivante */
+@keyframes pulse {
+    0% { box-shadow: 0 0 5px #ff0; }
+    50% { box-shadow: 0 0 20px #ff0; }
+    100% { box-shadow: 0 0 5px #ff0; }
+}
+.highlight {
+    animation: pulse 1s infinite;
+    background-color: orange;
+    color: black;
+}
+</style>
+</head>
+<body>
+
+<div id="ui">
+    ❤️ Vie: <span id="life">10</span>
+    💰 Or: <span id="gold">150</span>
+    🌊 Niveau: <span id="wave">1</span>
+    👹 Restants: <span id="remaining">0</span><br>
+    <button onclick="selectTower('sword')">Tour Épée (75)</button>
+    <button onclick="selectTower('spear')">Tour Lance (150)</button>
+    <button id="nextWaveBtn" onclick="startWave()">Lancer vague</button>
+    <button id="pauseBtn" onclick="togglePause()">Pause</button>
+    <button id="restartBtn" onclick="restartGame()">Recommencer</button>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const COLS=7, ROWS=14, tileSize=45;
+canvas.width = COLS*tileSize; canvas.height = ROWS*tileSize;
+const CENTER_COL=3;
+
+let towers=[], enemies=[], bullets=[];
+let gold=150, life=10, wave=1, selectedTower=null;
+let spawning=false, waveCompleted=true;
+let enemiesRemaining = 0;
+let spawnQueue = [];
+let gamePaused = false;
+
+// 🔊 Son doux
+let audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+function playKillSound(){
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    osc.type="sine"; osc.frequency.value=400;
+    gain.gain.value=0.05;
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime+0.1);
+}
+
+// UI
+function updateUI(){
+    document.getElementById("gold").innerText = gold;
+    document.getElementById("life").innerText = life;
+    document.getElementById("wave").innerText = wave;
+    document.getElementById("remaining").innerText = enemiesRemaining;
+}
+
+function selectTower(type){ selectedTower = type; }
+
+canvas.addEventListener("click", handleInteraction);
+canvas.addEventListener("touchstart", handleInteraction);
+
+function handleInteraction(e){
+    if(audioCtx.state==="suspended") audioCtx.resume();
+    const rect=canvas.getBoundingClientRect();
+    const clientX = e.touches? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches? e.touches[0].clientY : e.clientY;
+    placeTower(clientX - rect.left, clientY - rect.top);
+}
+
+function isOccupied(x,y){ return towers.some(t=>t.gridX===x && t.gridY===y); }
+
+function placeTower(mouseX, mouseY){
+    if(!selectedTower) return;
+    const gridX=Math.floor(mouseX/tileSize);
+    const gridY=Math.floor(mouseY/tileSize);
+    if(gridX===CENTER_COL) return;
+    if(isOccupied(gridX,gridY)) return;
+    if(gridY<0 || gridY>=ROWS) return;
+    const x=gridX*tileSize+tileSize/2, y=gridY*tileSize+tileSize/2;
+    if(selectedTower==="sword" && gold>=75){ towers.push({x,y,gridX,gridY,type:"sword",range:80,rate:65,damage:1,cooldown:0}); gold-=75; }
+    if(selectedTower==="spear" && gold>=150){ towers.push({x,y,gridX,gridY,type:"spear",range:100,rate:150,damage:2,cooldown:0}); gold-=150; }
+    updateUI();
+}
+
+// Or selon type d'ennemi
+function getGoldReward(enemy){
+    if(enemy.type === "boss") return 50;
+    if(enemy.type === "tank") return 15;
+    return 10;
+}
+
+// Générer queue ennemis
+function generateSpawnQueue(w){
+    let totalEnemies = 0;
+    if(w===1) totalEnemies=5;
+    else if(w===2) totalEnemies=10;
+    else if(w===3) totalEnemies=15;
+    else if(w===4) totalEnemies=20;
+    else if(w===5) totalEnemies=25;
+    else if(w===6) totalEnemies=30;
+    else if(w===7) totalEnemies=35;
+    else if(w===8) totalEnemies=40;
+    else if(w===9) totalEnemies=45;
+    else if(w===10) totalEnemies=51;
+
+    const queue = [];
+    let tankCount = 0;
+    if(w===3) tankCount=4;
+    else if(w===5) tankCount=8;
+    else if(w===6) tankCount=14;
+    else if(w===7) tankCount=22;
+    else if(w===8) tankCount=32;
+    else if(w===9) tankCount=40;
+    else if(w===10) tankCount=50;
+    const tankPositions = [];
+    for(let i=1;i<=tankCount;i++) tankPositions.push(Math.floor(i*totalEnemies/(tankCount+1))-1);
+
+    for(let i=0;i<totalEnemies;i++){
+        if(w===10 && i===totalEnemies-1){
+            queue.push({type:"boss", hp:60, speed:0.02});
+        } else if(tankPositions.includes(i)){
+            queue.push({type:"tank", hp:8});
+        } else {
+            queue.push({type:"normal", hp:3});
+        }
+    }
+    return queue;
+}
+
+// Lancer vague
+function startWave(){
+    if(spawning || gamePaused) return;
+
+    const btn = document.getElementById("nextWaveBtn");
+    btn.innerText = "Vague en cours";   // Indique le début de la vague
+    btn.classList.remove("highlight");   // retire pulse si présent
+
+    spawning=true; waveCompleted=false;
+    spawnQueue = generateSpawnQueue(wave);
+    enemiesRemaining = spawnQueue.length;
+    updateUI();
+
+    let intervalTime = 800;
+    if(wave === 4) intervalTime = 400;
+    if(wave >= 5) intervalTime = 600;
+    if(wave >= 7) intervalTime = 500;
+    if(wave >= 9) intervalTime = 400;
+
+    const interval = setInterval(()=>{
+        if(gamePaused) return;
+        if(spawnQueue.length === 0){
+            clearInterval(interval);
+            spawning = false;
+            return;
+        }
+        const enemyData = spawnQueue.shift();
+        enemies.push({
+            gridY:0,
+            hp: enemyData.hp,
+            maxHp: enemyData.hp,
+            speed: enemyData.speed || (0.02 + wave*0.002),
+            type: enemyData.type
+        });
+        updateUI();
+    }, intervalTime);
+}
+
+// Pause
+function togglePause(){
+    gamePaused = !gamePaused;
+    document.getElementById("pauseBtn").innerText = gamePaused ? "Reprendre" : "Pause";
+}
+
+// Dessiner grille
+function drawGrid(){
+    ctx.strokeStyle="rgba(255,255,255,0.15)";
+    for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++) ctx.strokeRect(x*tileSize,y*tileSize,tileSize,tileSize);
+}
+
+// Game loop
+function update(){
+    if(!gamePaused){
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        drawGrid();
+        ctx.fillStyle="brown"; ctx.fillRect(CENTER_COL*tileSize,0,tileSize,canvas.height);
+
+        for(let i=enemies.length-1;i>=0;i--){
+            const enemy = enemies[i];
+            enemy.gridY += enemy.speed;
+            enemy.x = CENTER_COL*tileSize + tileSize/2;
+            enemy.y = enemy.gridY*tileSize;
+
+            ctx.fillStyle = (enemy.type==="tank"||enemy.type==="boss")?"purple":"green";
+            ctx.beginPath();
+            ctx.arc(enemy.x, enemy.y, enemy.type==="boss"?30:15, 0, Math.PI*2);
+            ctx.fill();
+
+            // barre de vie
+            ctx.fillStyle="black";
+            ctx.fillRect(enemy.x-(enemy.type==="boss"?30:15), enemy.y+(enemy.type==="boss"?35:18), (enemy.type==="boss"?60:30), (enemy.type==="boss"?8:6));
+            ctx.fillStyle="lime";
+            ctx.fillRect(enemy.x-(enemy.type==="boss"?30:15), enemy.y+(enemy.type==="boss"?35:18), (enemy.type==="boss"?60:30)*(enemy.hp/enemy.maxHp), (enemy.type==="boss"?8:6));
+
+            if(enemy.gridY >= ROWS){
+                life--;
+                enemies.splice(i,1);
+                enemiesRemaining--;
+                updateUI();
+                if(life<=0){ 
+                    spawning=false; 
+                    document.getElementById("nextWaveBtn").style.display="none";
+                    document.getElementById("restartBtn").style.display="inline-block";
+                    alert("Game Over !");
+                }
+            }
+        }
+
+        // tours
+        towers.forEach(tower=>{
+            ctx.fillStyle = tower.type==="sword"?"silver":"gold";
+            ctx.beginPath(); ctx.arc(tower.x,tower.y,18,0,Math.PI*2); ctx.fill();
+            if(tower.cooldown>0) tower.cooldown--;
+            enemies.forEach(enemy=>{
+                const dx=enemy.x-tower.x, dy=enemy.y-tower.y, dist=Math.sqrt(dx*dx+dy*dy);
+                if(dist<tower.range && tower.cooldown<=0){
+                    bullets.push({x:tower.x,y:tower.y,target:enemy,damage:tower.damage});
+                    tower.cooldown=tower.rate;
+                }
+            });
+        });
+
+        // projectiles
+        for(let bi=bullets.length-1; bi>=0; bi--){
+            const bullet = bullets[bi];
+            const dx = bullet.target.x - bullet.x;
+            const dy = bullet.target.y - bullet.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            bullet.x += dx/dist*6;
+            bullet.y += dy/dist*6;
+            ctx.fillStyle="black";
+            ctx.beginPath(); ctx.arc(bullet.x,bullet.y,4,0,Math.PI*2);
+            ctx.fill();
+
+            if(dist<6){
+                bullet.target.hp -= bullet.damage;
+                if(bullet.target.hp <= 0){
+                    const idx = enemies.indexOf(bullet.target);
+                    if(idx !== -1){
+                        gold += getGoldReward(bullet.target);
+                        playKillSound();
+                        enemies.splice(idx,1);
+                        enemiesRemaining--;
+                    }
+                }
+                bullets.splice(bi,1);
+                updateUI();
+            }
+        }
+
+        // Vague suivante et effet sur bouton
+        if(enemiesRemaining===0 && !spawning && !waveCompleted){
+            waveCompleted = true;
+
+            if(wave === 10){
+                // 🎉 Fin du jeu
+                document.getElementById("nextWaveBtn").style.display="none";
+                document.getElementById("restartBtn").style.display="inline-block";
+                alert("Bravo ! Tu as gagné !");
+            } else {
+                const btn = document.getElementById("nextWaveBtn");
+                btn.innerText = "Vague suivante";
+                btn.classList.add("highlight");  // pulse pour signaler prochaine vague
+                wave++;
+            }
+            updateUI();
+        }
+    }
+
+    requestAnimationFrame(update);
+}
+
+// Recommencer
+function restartGame(){
+    towers=[]; enemies=[]; bullets=[]; gold=150; life=10; wave=1;
+    spawning=false; waveCompleted=true; enemiesRemaining=0; spawnQueue=[];
+    gamePaused=false;
+    document.getElementById("nextWaveBtn").style.display="inline-block";
+    document.getElementById("nextWaveBtn").innerText="Lancer vague";
+    document.getElementById("nextWaveBtn").classList.remove("highlight");
+    document.getElementById("restartBtn").style.display="none";
+    document.getElementById("pauseBtn").innerText="Pause";
+    updateUI();
+}
+
+updateUI();
+update();
+</script>
+</body>
+</html>
